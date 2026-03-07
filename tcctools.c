@@ -574,9 +574,9 @@ ST_FUNC int tcc_tool_cross(char **argv, int target)
 /* enable commandline wildcard expansion (tcc -o x.exe *.c) */
 
 #ifdef _WIN32
-const int _CRT_glob = 1;
+const int _CRT_glob = 0;
 #ifndef _CRT_glob
-const int _dowildcard = 1;
+const int _dowildcard = 0;
 #endif
 #endif
 
