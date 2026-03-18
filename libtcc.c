@@ -107,7 +107,7 @@ static inline char *config_tccdir_w32(char *path)
 {
     char *p;
     GetModuleFileNameA(tcc_module, path, MAX_PATH);
-    p = tcc_basename(normalize_slashes(strlwr(path)));
+    p = tcc_basename(normalize_slashes(path));
     if (p > path)
         --p;
     *p = 0;
