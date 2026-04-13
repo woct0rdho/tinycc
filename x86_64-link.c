@@ -327,8 +327,13 @@ ST_FUNC void relocate(TCCState *s1, ElfW_Rel *rel, int type, unsigned char *ptr,
                     /* .word 0x6666; rex64; call __tls_get_addr@PLT */
                     0x66, 0x66, 0x48, 0xe8, 0x00, 0x00, 0x00, 0x00 };
                 static const unsigned char replace[] = {
+#ifdef TCC_TARGET_PE
+                    /* mov %gs:0,%rax */
+                    0x65, 0x48, 0x8b, 0x04, 0x25, 0x00, 0x00, 0x00, 0x00,
+#else
                     /* mov %fs:0,%rax */
                     0x64, 0x48, 0x8b, 0x04, 0x25, 0x00, 0x00, 0x00, 0x00,
+#endif
                     /* lea -4(%rax),%rax */
                     0x48, 0x8d, 0x80, 0x00, 0x00, 0x00, 0x00 };
 
@@ -356,8 +361,13 @@ ST_FUNC void relocate(TCCState *s1, ElfW_Rel *rel, int type, unsigned char *ptr,
                     /* call __tls_get_addr@PLT */
                     0xe8, 0x00, 0x00, 0x00, 0x00 };
                 static const unsigned char replace[] = {
+#ifdef TCC_TARGET_PE
+                    /* data16 data16 data16 mov %gs:0,%rax */
+                    0x66, 0x66, 0x66, 0x65, 0x48, 0x8b, 0x04, 0x25,
+#else
                     /* data16 data16 data16 mov %fs:0,%rax */
                     0x66, 0x66, 0x66, 0x64, 0x48, 0x8b, 0x04, 0x25,
+#endif
                     0x00, 0x00, 0x00, 0x00 };
 
                 if (memcmp (ptr-3, expect, sizeof(expect)) == 0) {
