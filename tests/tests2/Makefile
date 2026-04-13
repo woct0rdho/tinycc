@@ -146,6 +146,8 @@ ifneq ($(CONFIG_bcheck),no)
 endif
 125_atomic_misc.test: FLAGS += -dt
 124_atomic_counter.test: FLAGS += -pthread
+138_c11_predefs.test: FLAGS += -std=c11
+139_c17_predefs.test: FLAGS += -std=c17
 126_bound_global.test: FLAGS += -b
 126_bound_global.test: NORUN = true
 128_run_atexit.test: FLAGS += -dt
