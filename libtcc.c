@@ -1993,6 +1993,8 @@ PUB_FUNC int tcc_parse_args(TCCState *s, int *pargc, char ***pargv)
         case TCC_OPTION_std:
             if (strcmp(optarg, "=c11") == 0 || strcmp(optarg, "=gnu11") == 0)
                 s->cversion = 201112;
+            else if (strcmp(optarg, "=c17") == 0 || strcmp(optarg, "=gnu17") == 0)
+                s->cversion = 201710;
             break;
         case TCC_OPTION_shared:
             x = TCC_OUTPUT_DLL;
