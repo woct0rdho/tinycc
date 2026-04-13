@@ -81,6 +81,10 @@
 #if defined _WIN32
     #define __declspec(x) __attribute__((x))
     #define __cdecl
+    #define __MINGW32__ 1
+# if defined _WIN64
+    #define __MINGW64__ 1
+# endif
 
 #elif defined __FreeBSD__
     #define __GNUC__ 9
