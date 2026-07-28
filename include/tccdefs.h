@@ -69,7 +69,6 @@
 #endif
 
     #if __STDC_VERSION__ >= 201112L
-    # define __STDC_NO_ATOMICS__ 1
     # define __STDC_NO_COMPLEX__ 1
     # define __STDC_NO_THREADS__ 1
 #if !defined _WIN32
