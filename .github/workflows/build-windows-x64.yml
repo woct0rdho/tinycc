@@ -24,9 +24,12 @@ env:
 jobs:
   build-x64:
     runs-on: windows-2025
-    timeout-minutes: 45
+    timeout-minutes: 5
     steps:
     - uses: actions/checkout@v7
+      with:
+        # Always checkout a detached HEAD. This avoids hardcoding the branch name in the built tcc.
+        ref: ${{ github.sha }}
 
     - name: build native x64 TCC bootstrap with MSVC
       shell: cmd
