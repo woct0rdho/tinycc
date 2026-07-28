@@ -28,7 +28,7 @@ jobs:
     steps:
     - uses: actions/checkout@v7
 
-    - name: build native ARM64 TCC
+    - name: build native ARM64 TCC bootstrap with MSVC
       shell: cmd
       run: |
         cd win32
@@ -36,6 +36,20 @@ jobs:
         if /I not "%VSCMD_ARG_HOST_ARCH%"=="arm64" exit /B 1
         if /I not "%VSCMD_ARG_TGT_ARCH%"=="arm64" exit /B 1
         call build-tcc.bat -c cl -t arm64
+
+    - name: rebuild native ARM64 TCC with TCC
+      shell: cmd
+      run: |
+        cd win32
+        set "bootstrap=%RUNNER_TEMP%\tcc-bootstrap-arm64"
+        if exist "%bootstrap%" rmdir /Q/S "%bootstrap%"
+        mkdir "%bootstrap%" || exit /B 1
+        copy /Y tcc.exe "%bootstrap%\tcc.exe" >nul || exit /B 1
+        copy /Y libtcc.dll "%bootstrap%\libtcc.dll" >nul || exit /B 1
+        xcopy /E/I/Q/Y include "%bootstrap%\include" >nul || exit /B 1
+        xcopy /E/I/Q/Y lib "%bootstrap%\lib" >nul || exit /B 1
+        call build-tcc.bat -clean || exit /B 1
+        call build-tcc.bat -c "%bootstrap%\tcc.exe" -t arm64
 
     # CPython first published official Windows ARM64 binaries in 3.11.
     # Extracting the DLLs avoids replacing Python versions in the runner toolcache.
@@ -121,9 +135,9 @@ jobs:
     - name: generate ARM64 CUDA definition
       shell: pwsh
       run: |
-        # A .def file contains only the DLL name and architecture-independent
-        # export names, so the x64 CUDA import library is equivalent for this
-        # purpose. Replace it with an ARM64 package when NVIDIA provides one.
+        # A .def file contains only the DLL name and architecture-independent export names,
+        # so the x64 CUDA import library is equivalent to ARM64 for this purpose.
+        # Replace it with an ARM64 package when NVIDIA provides one.
         $archive = Join-Path $env:RUNNER_TEMP "cuda_cudart-windows-x86_64-12.8.90-archive.zip"
         $extractDirectory = Join-Path $env:RUNNER_TEMP "cuda-cudart-x64"
         curl.exe `
@@ -223,11 +237,24 @@ jobs:
         & $executable
         if ($LASTEXITCODE) { throw "TCC smoke-test executable failed" }
 
+        $commitTimestamp = ([DateTimeOffset](git show -s --format=%cI HEAD)).UtcDateTime
+        # ZIP timestamps have no timezone, so we store the timestamp in UTC into LastWriteTime regardless of
+        # what timezone LastWriteTime actually represents, then let Compress-Archive read it.
+        $commitTimestamp = [DateTime]::SpecifyKind($commitTimestamp, [DateTimeKind]::Unspecified)
+        Get-ChildItem -LiteralPath $stage -Recurse -File | ForEach-Object {
+          $_.LastWriteTime = $commitTimestamp
+        }
+
+        $archivePaths = @(
+          Get-ChildItem -Path "$stage\*" |
+            Sort-Object -Property FullName |
+            Select-Object -ExpandProperty FullName
+        )
         $archive = Join-Path $PWD "$name.zip"
-        Compress-Archive -Path "$stage\*" -DestinationPath $archive
+        Compress-Archive -Path $archivePaths -DestinationPath $archive
         "name=$name" >> $env:GITHUB_OUTPUT
         "archive=$archive" >> $env:GITHUB_OUTPUT
-        
+
     - uses: actions/attest@v4
       with:
         subject-path: ${{ steps.package.outputs.archive }}
