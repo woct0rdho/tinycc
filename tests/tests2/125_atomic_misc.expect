@@ -57,3 +57,9 @@ nand_fetch: SUCCESS
 
 [test_atomic_warn_3]
 125_atomic_misc.c:204: warning: assignment of read-only location
+
+[test_atomic_cast]
+42
+42 7
+1 9 7
+0 9 9

@@ -25,7 +25,7 @@ __CRT_INLINE unsigned long long __readgsqword(unsigned long Offset) {
 __CRT_INLINE unsigned long __readfsdword(unsigned long Offset) {
     unsigned long ret;
     __asm__ volatile ("movl\t%%fs:%1,%0"
-        : "=r" (ret), "=m" ((*(volatile long *) (unsigned long long) Offset)));
+        : "=r" (ret), "=m" ((*(volatile long *) (unsigned long) Offset)));
     return ret;
 }
 #endif
