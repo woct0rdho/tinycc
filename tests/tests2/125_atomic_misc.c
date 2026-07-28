@@ -204,4 +204,33 @@ int main()
     atomic_fetch_add(&i, 2);
 }
 
+#elif defined test_atomic_cast
+int main(void)
+{
+    int value = 0;
+    int expected;
+    int old;
+
+    atomic_store_explicit((_Atomic(int)*)&value, 42, memory_order_release);
+    printf("%d\n", atomic_load_explicit(
+        (const _Atomic(int)*)&value, memory_order_acquire));
+
+    old = atomic_exchange_explicit(
+        (_Atomic(int)*)&value, 7, memory_order_acq_rel);
+    printf("%d %d\n", old, atomic_load_explicit(
+        (const _Atomic(int)*)&value, memory_order_acquire));
+
+    expected = 7;
+    old = atomic_compare_exchange_strong_explicit(
+        (_Atomic(int)*)&value, &expected, 9,
+        memory_order_acq_rel, memory_order_acquire);
+    printf("%d %d %d\n", old, value, expected);
+
+    expected = 8;
+    old = atomic_compare_exchange_strong_explicit(
+        (_Atomic(int)*)&value, &expected, 10,
+        memory_order_acq_rel, memory_order_acquire);
+    printf("%d %d %d\n", old, value, expected);
+}
+
 #endif

@@ -69,7 +69,6 @@
 #endif
 
     #if __STDC_VERSION__ >= 201112L
-    # define __STDC_NO_ATOMICS__ 1
     # define __STDC_NO_COMPLEX__ 1
     # define __STDC_NO_THREADS__ 1
 #if !defined _WIN32
@@ -81,6 +80,10 @@
 #if defined _WIN32
     #define __declspec(x) __attribute__((x))
     #define __cdecl
+    #define __MINGW32__ 1
+# if defined _WIN64
+    #define __MINGW64__ 1
+# endif
 
 #elif defined __FreeBSD__
     #define __GNUC__ 9
