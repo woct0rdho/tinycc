@@ -1,0 +1,209 @@
+name: build Windows x64 binary
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ mob ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ mob ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-x64-binary-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NVIDIA_DRIVER_URL: https://us.download.nvidia.com/Windows/572.70/572.70-desktop-win10-win11-64bit-international-dch-whql.exe
+  NVIDIA_DRIVER_SHA256: FD81090A6DFE9DFE44E6862F0E29688319E25D62F4D9220A71C2335FD7B708DA
+
+jobs:
+  build-x64:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: build native x64 TCC
+      shell: cmd
+      run: |
+        cd win32
+        for /f "delims=" %%i in ('vswhere.exe -latest -property installationPath') do call "%%i\VC\Auxiliary\Build\vcvarsall.bat" amd64
+        call build-tcc.bat -c cl -t x86_64
+
+    # These versions match the DLLs used by v0.9.28rc-05bb793.
+    - name: set up x64 Python 3.9
+      uses: actions/setup-python@v7
+      with:
+        python-version: "3.9.13"
+        architecture: x64
+    - name: generate x64 Python 3.9 definitions
+      shell: pwsh
+      run: |
+        & .\win32\tcc.exe -impdef "$env:pythonLocation\python3.dll" -o win32\lib\python3.def
+        if ($LASTEXITCODE) { throw "Failed to generate python3.def" }
+        & .\win32\tcc.exe -impdef "$env:pythonLocation\python39.dll" -o win32\lib\python39.def
+        if ($LASTEXITCODE) { throw "Failed to generate python39.def" }
+
+    - name: set up x64 Python 3.10
+      uses: actions/setup-python@v7
+      with:
+        python-version: "3.10.11"
+        architecture: x64
+    - name: generate x64 Python 3.10 definition
+      shell: pwsh
+      run: |
+        & .\win32\tcc.exe -impdef "$env:pythonLocation\python310.dll" -o win32\lib\python310.def
+        if ($LASTEXITCODE) { throw "Failed to generate python310.def" }
+
+    - name: set up x64 Python 3.11
+      uses: actions/setup-python@v7
+      with:
+        python-version: "3.11.9"
+        architecture: x64
+    - name: generate x64 Python 3.11 definition
+      shell: pwsh
+      run: |
+        & .\win32\tcc.exe -impdef "$env:pythonLocation\python311.dll" -o win32\lib\python311.def
+        if ($LASTEXITCODE) { throw "Failed to generate python311.def" }
+
+    - name: set up x64 Python 3.12
+      uses: actions/setup-python@v7
+      with:
+        python-version: "3.12.9"
+        architecture: x64
+    - name: generate x64 Python 3.12 definition
+      shell: pwsh
+      run: |
+        & .\win32\tcc.exe -impdef "$env:pythonLocation\python312.dll" -o win32\lib\python312.def
+        if ($LASTEXITCODE) { throw "Failed to generate python312.def" }
+
+    - name: set up x64 Python 3.13
+      uses: actions/setup-python@v7
+      with:
+        python-version: "3.13.2"
+        architecture: x64
+    - name: generate x64 Python 3.13 definition
+      shell: pwsh
+      run: |
+        & .\win32\tcc.exe -impdef "$env:pythonLocation\python313.dll" -o win32\lib\python313.def
+        if ($LASTEXITCODE) { throw "Failed to generate python313.def" }
+
+    - name: set up free-threaded x64 Python 3.13
+      uses: actions/setup-python@v7
+      with:
+        python-version: "3.13.2t"
+        architecture: x64
+    - name: generate free-threaded x64 Python 3.13 definitions
+      shell: pwsh
+      run: |
+        & .\win32\tcc.exe -impdef "$env:pythonLocation\python3t.dll" -o win32\lib\python3t.def
+        if ($LASTEXITCODE) { throw "Failed to generate python3t.def" }
+        & .\win32\tcc.exe -impdef "$env:pythonLocation\python313t.dll" -o win32\lib\python313t.def
+        if ($LASTEXITCODE) { throw "Failed to generate python313t.def" }
+
+    - name: set up x64 Python 3.14
+      uses: actions/setup-python@v7
+      with:
+        python-version: "3.14.1"
+        architecture: x64
+    - name: generate x64 Python 3.14 definition
+      shell: pwsh
+      run: |
+        & .\win32\tcc.exe -impdef "$env:pythonLocation\python314.dll" -o win32\lib\python314.def
+        if ($LASTEXITCODE) { throw "Failed to generate python314.def" }
+
+    - name: set up free-threaded x64 Python 3.14
+      uses: actions/setup-python@v7
+      with:
+        python-version: "3.14.1t"
+        architecture: x64
+    - name: generate free-threaded x64 Python 3.14 definition
+      shell: pwsh
+      run: |
+        & .\win32\tcc.exe -impdef "$env:pythonLocation\python314t.dll" -o win32\lib\python314t.def
+        if ($LASTEXITCODE) { throw "Failed to generate python314t.def" }
+
+    - name: generate x64 CUDA definition
+      shell: pwsh
+      run: |
+        $driver = Join-Path $env:RUNNER_TEMP "nvidia-driver.exe"
+        curl.exe --fail --location --retry 3 --silent --show-error --output $driver $env:NVIDIA_DRIVER_URL
+        if ($LASTEXITCODE) { throw "Failed to download the NVIDIA driver" }
+
+        $actualHash = (Get-FileHash $driver -Algorithm SHA256).Hash
+        if ($actualHash -ne $env:NVIDIA_DRIVER_SHA256) {
+          throw "NVIDIA driver checksum mismatch: $actualHash"
+        }
+
+        $driverFiles = Join-Path $env:RUNNER_TEMP "nvidia-driver"
+        & "C:\Program Files\7-Zip\7z.exe" e -y $driver "Display.Driver\nvcuda_loader64.dll" "-o$driverFiles"
+        if ($LASTEXITCODE) { throw "Failed to extract nvcuda_loader64.dll" }
+
+        $cudaDll = Join-Path $driverFiles "nvcuda.dll"
+        Move-Item (Join-Path $driverFiles "nvcuda_loader64.dll") $cudaDll
+        & .\win32\tcc.exe -impdef $cudaDll -o win32\lib\cuda.def
+        if ($LASTEXITCODE) { throw "Failed to generate cuda.def" }
+
+    - name: verify x64 import definitions
+      shell: pwsh
+      run: |
+        $expected = @(
+          "cuda.def",
+          "python3.def",
+          "python39.def",
+          "python310.def",
+          "python311.def",
+          "python312.def",
+          "python313.def",
+          "python313t.def",
+          "python314.def",
+          "python314t.def",
+          "python3t.def"
+        )
+        foreach ($file in $expected) {
+          $path = Join-Path "win32\lib" $file
+          if (!(Test-Path $path)) { throw "Missing import definition: $path" }
+        }
+        if ((Get-Content win32\lib\cuda.def -TotalCount 1) -ne "LIBRARY nvcuda.dll") {
+          throw "cuda.def has the wrong library name"
+        }
+
+    - name: bundle and smoke test x64
+      id: package
+      shell: pwsh
+      run: |
+        $version = (Get-Content VERSION -Raw).Trim()
+        $revision = (git rev-parse --short=7 HEAD).Trim()
+        $name = "tcc-$version-$revision-windows-x64"
+        $stage = Join-Path $env:RUNNER_TEMP $name
+        $lib = Join-Path $stage "lib"
+
+        New-Item -ItemType Directory -Path $lib | Out-Null
+        Copy-Item win32\tcc.exe, win32\libtcc.dll $stage
+        Copy-Item win32\include $stage -Recurse
+        Copy-Item win32\lib\libtcc1.a $lib
+        Copy-Item win32\lib\*.def $lib
+
+        $source = Join-Path $env:RUNNER_TEMP "smoke-test.c"
+        $executable = Join-Path $env:RUNNER_TEMP "smoke-test.exe"
+        Set-Content $source "int main(void) { return 0; }"
+        & "$stage\tcc.exe" "-B$stage" $source -o $executable
+        if ($LASTEXITCODE) { throw "TCC smoke-test compilation failed" }
+        & $executable
+        if ($LASTEXITCODE) { throw "TCC smoke-test executable failed" }
+
+        $archive = Join-Path $PWD "$name.zip"
+        Compress-Archive -Path "$stage\*" -DestinationPath $archive
+        "name=$name" >> $env:GITHUB_OUTPUT
+        "archive=$archive" >> $env:GITHUB_OUTPUT
+
+    - name: upload x64 bundle
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ steps.package.outputs.name }}
+        path: ${{ steps.package.outputs.archive }}
+        if-no-files-found: error
+        archive: false
