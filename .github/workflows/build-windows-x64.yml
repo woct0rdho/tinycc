@@ -190,7 +190,7 @@ jobs:
         $source = Join-Path $env:RUNNER_TEMP "smoke-test.c"
         $executable = Join-Path $env:RUNNER_TEMP "smoke-test.exe"
         Set-Content $source "int main(void) { return 0; }"
-        & "$stage\tcc.exe" -B$stage $source -o $executable
+        & "$stage\tcc.exe" "-B$stage" $source -o $executable
         if ($LASTEXITCODE) { throw "TCC smoke-test compilation failed" }
         & $executable
         if ($LASTEXITCODE) { throw "TCC smoke-test executable failed" }

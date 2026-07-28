@@ -36,75 +36,85 @@ jobs:
         call build-tcc.bat -c cl -t arm64
 
     # CPython first published official Windows ARM64 binaries in 3.11.
-    - name: set up ARM64 Python 3.11
-      uses: actions/setup-python@v7
-      with:
-        python-version: "3.11.9"
-        architecture: arm64
-    - name: generate ARM64 Python 3.11 definitions
+    # Extracting the DLLs avoids replacing Python versions in the runner toolcache.
+    - name: generate ARM64 Python definitions
       shell: pwsh
       run: |
-        & .\win32\tcc.exe -impdef "$env:pythonLocation\python3.dll" -o win32\lib\python3.def
-        if ($LASTEXITCODE) { throw "Failed to generate python3.def" }
-        & .\win32\tcc.exe -impdef "$env:pythonLocation\python311.dll" -o win32\lib\python311.def
-        if ($LASTEXITCODE) { throw "Failed to generate python311.def" }
+        $packages = @(
+          @{
+            Version = "3.11.9"
+            Name = "python-3.11.9-embed-arm64.zip"
+            Hash = "1A6DAE49D15320270A7141F93B574FF7686A7A526EFA65E63DDBEBF9B409929A"
+            Definitions = @("python3.dll=python3.def", "python311.dll=python311.def")
+          },
+          @{
+            Version = "3.12.9"
+            Name = "python-3.12.9-embed-arm64.zip"
+            Hash = "C7D4D2A8E7E36263F34659B1CF70E7691F0572DA3E4D4E583B3334555D978877"
+            Definitions = @("python312.dll=python312.def")
+          },
+          @{
+            Version = "3.13.2"
+            Name = "python-3.13.2-arm64.zip"
+            Hash = "7B23DF9B2F3E8B7E10D8278406B37A0D53A73165AC7566748B1F2EE3A24580A5"
+            Definitions = @("python313.dll=python313.def")
+          },
+          @{
+            Version = "3.13.2"
+            Name = "python-3.13.2t-arm64.zip"
+            Hash = "AF30D88C2F6163A9B76C9B52C37DF59DBA43A51A755FFA6674C2A1DFF786F81B"
+            Definitions = @("python3t.dll=python3t.def", "python313t.dll=python313t.def")
+          },
+          @{
+            Version = "3.14.1"
+            Name = "python-3.14.1-arm64.zip"
+            Hash = "BE97DCA16525FCA8FD07CD4CA0AF646974C58D179EEB6502A8E9B1E793E8D31F"
+            Definitions = @("python314.dll=python314.def")
+          },
+          @{
+            Version = "3.14.1"
+            Name = "python-3.14.1t-arm64.zip"
+            Hash = "29D675D7889C9BCE957CC386D8B7D50C5492A7CE96EDF8346803952960E6E37B"
+            Definitions = @("python314t.dll=python314t.def")
+          }
+        )
+        $downloadDirectory = Join-Path $env:RUNNER_TEMP "python-arm64"
+        New-Item -ItemType Directory -Force -Path $downloadDirectory | Out-Null
 
-    - name: set up ARM64 Python 3.12
-      uses: actions/setup-python@v7
-      with:
-        python-version: "3.12.9"
-        architecture: arm64
-    - name: generate ARM64 Python 3.12 definition
-      shell: pwsh
-      run: |
-        & .\win32\tcc.exe -impdef "$env:pythonLocation\python312.dll" -o win32\lib\python312.def
-        if ($LASTEXITCODE) { throw "Failed to generate python312.def" }
+        foreach ($package in $packages) {
+          $archive = Join-Path $downloadDirectory $package.Name
+          $extractDirectory = Join-Path $downloadDirectory $package.Name.Replace(".zip", "")
+          $url = "https://www.python.org/ftp/python/$($package.Version)/$($package.Name)"
+          curl.exe `
+            --fail `
+            --location `
+            --retry 5 `
+            --retry-all-errors `
+            --retry-delay 5 `
+            --silent `
+            --show-error `
+            --output $archive `
+            $url
+          if ($LASTEXITCODE) {
+            throw "Failed to download $($package.Name)"
+          }
 
-    - name: set up ARM64 Python 3.13
-      uses: actions/setup-python@v7
-      with:
-        python-version: "3.13.2"
-        architecture: arm64
-    - name: generate ARM64 Python 3.13 definition
-      shell: pwsh
-      run: |
-        & .\win32\tcc.exe -impdef "$env:pythonLocation\python313.dll" -o win32\lib\python313.def
-        if ($LASTEXITCODE) { throw "Failed to generate python313.def" }
+          $actualHash = (Get-FileHash $archive -Algorithm SHA256).Hash
+          if ($actualHash -ne $package.Hash) {
+            throw "$($package.Name) checksum mismatch: $actualHash"
+          }
+          Expand-Archive -LiteralPath $archive -DestinationPath $extractDirectory
 
-    - name: set up free-threaded ARM64 Python 3.13
-      uses: actions/setup-python@v7
-      with:
-        python-version: "3.13.2t"
-        architecture: arm64
-    - name: generate free-threaded ARM64 Python 3.13 definitions
-      shell: pwsh
-      run: |
-        & .\win32\tcc.exe -impdef "$env:pythonLocation\python3t.dll" -o win32\lib\python3t.def
-        if ($LASTEXITCODE) { throw "Failed to generate python3t.def" }
-        & .\win32\tcc.exe -impdef "$env:pythonLocation\python313t.dll" -o win32\lib\python313t.def
-        if ($LASTEXITCODE) { throw "Failed to generate python313t.def" }
-
-    - name: set up ARM64 Python 3.14
-      uses: actions/setup-python@v7
-      with:
-        python-version: "3.14.1"
-        architecture: arm64
-    - name: generate ARM64 Python 3.14 definition
-      shell: pwsh
-      run: |
-        & .\win32\tcc.exe -impdef "$env:pythonLocation\python314.dll" -o win32\lib\python314.def
-        if ($LASTEXITCODE) { throw "Failed to generate python314.def" }
-
-    - name: set up free-threaded ARM64 Python 3.14
-      uses: actions/setup-python@v7
-      with:
-        python-version: "3.14.1t"
-        architecture: arm64
-    - name: generate free-threaded ARM64 Python 3.14 definition
-      shell: pwsh
-      run: |
-        & .\win32\tcc.exe -impdef "$env:pythonLocation\python314t.dll" -o win32\lib\python314t.def
-        if ($LASTEXITCODE) { throw "Failed to generate python314t.def" }
+          foreach ($mapping in $package.Definitions) {
+            $dll, $definition = $mapping.Split("=")
+            & .\win32\tcc.exe `
+              -impdef (Join-Path $extractDirectory $dll) `
+              -o (Join-Path "win32\lib" $definition)
+            if ($LASTEXITCODE) {
+              throw "Failed to generate $definition"
+            }
+          }
+        }
 
     - name: cache CUDA 13.4 ARM64 installer
       uses: actions/cache@v4
@@ -237,7 +247,7 @@ jobs:
         $source = Join-Path $env:RUNNER_TEMP "smoke-test.c"
         $executable = Join-Path $env:RUNNER_TEMP "smoke-test.exe"
         Set-Content $source "int main(void) { return 0; }"
-        & "$stage\tcc.exe" -B$stage $source -o $executable
+        & "$stage\tcc.exe" "-B$stage" $source -o $executable
         if ($LASTEXITCODE) { throw "TCC smoke-test compilation failed" }
         & $executable
         if ($LASTEXITCODE) { throw "TCC smoke-test executable failed" }
