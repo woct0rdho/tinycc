@@ -16,8 +16,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CUDA_TOOLKIT_URL: https://packages.nvidia.com/prerelease/cuda/13.4.0/local_installers/cuda_13.4.0_windows_arm64.exe
-  CUDA_TOOLKIT_SHA256: A1F68C81160B16D519C4087788B9C07DE41306C3F1B872471CEEE0996621374D
+  CUDART_URL: https://developer.download.nvidia.com/compute/cuda/redist/cuda_cudart/windows-x86_64/cuda_cudart-windows-x86_64-12.8.90-archive.zip
+  CUDART_SHA256: 4A39058FD8519444A81CFC7AE055D136F48D1A31FFA41AE255B35B2EDD61E13B
 
 jobs:
   build-arm64:
@@ -116,63 +116,34 @@ jobs:
           }
         }
 
-    - name: cache CUDA 13.4 ARM64 installer
-      uses: actions/cache@v4
-      with:
-        path: ${{ runner.temp }}\cuda-installer
-        key: cuda-13.4.0-windows-arm64-${{ env.CUDA_TOOLKIT_SHA256 }}
-
-    - name: download CUDA Toolkit 13.4 for ARM64
-      shell: pwsh
-      run: |
-        $directory = Join-Path $env:RUNNER_TEMP "cuda-installer"
-        $installer = Join-Path $directory "cuda_13.4.0_windows_arm64.exe"
-        $partial = "$installer.part"
-        $expectedLength = 3835939064
-        New-Item -ItemType Directory -Force -Path $directory | Out-Null
-
-        if ((Test-Path $installer) -and (Get-Item $installer).Length -ne $expectedLength) {
-          Write-Warning "Discarding incomplete cached CUDA installer"
-          Remove-Item $installer -Force
-        }
-        if ((Test-Path $partial) -and (Get-Item $partial).Length -gt $expectedLength) {
-          Remove-Item $partial -Force
-        }
-        if (!(Test-Path $installer)) {
-          curl.exe `
-            --fail `
-            --location `
-            --retry 5 `
-            --retry-all-errors `
-            --retry-delay 10 `
-            --continue-at - `
-            --output $partial `
-            $env:CUDA_TOOLKIT_URL
-          if ($LASTEXITCODE) {
-            throw "CUDA installer download failed with curl exit code $LASTEXITCODE"
-          }
-          Move-Item $partial $installer
-        }
-
-        $actualHash = (Get-FileHash $installer -Algorithm SHA256).Hash
-        if ($actualHash -ne $env:CUDA_TOOLKIT_SHA256) {
-          throw "CUDA ARM64 installer checksum mismatch: $actualHash"
-        }
-
     - name: generate ARM64 CUDA definition
       shell: pwsh
       run: |
-        # CUDA 13.4 no longer bundles the Windows display driver. Its native
-        # ARM64 cuda.lib loader is the available source of Driver API symbols.
-        $installer = Join-Path $env:RUNNER_TEMP "cuda-installer\cuda_13.4.0_windows_arm64.exe"
-        $extractDirectory = Join-Path $env:RUNNER_TEMP "cuda-arm64"
-        & "C:\Program Files\7-Zip\7z.exe" e -y `
-          $installer `
-          "cuda_cudart\cudart\lib\arm64\cuda.lib" `
-          "-o$extractDirectory"
-        if ($LASTEXITCODE) { throw "Failed to extract the ARM64 CUDA loader library" }
+        # A .def file contains only the DLL name and architecture-independent
+        # export names, so the x64 CUDA import library is equivalent for this
+        # purpose. Replace it with an ARM64 package when NVIDIA provides one.
+        $archive = Join-Path $env:RUNNER_TEMP "cuda_cudart-windows-x86_64-12.8.90-archive.zip"
+        $extractDirectory = Join-Path $env:RUNNER_TEMP "cuda-cudart-x64"
+        curl.exe `
+          --fail `
+          --location `
+          --retry 5 `
+          --retry-all-errors `
+          --retry-delay 5 `
+          --silent `
+          --show-error `
+          --output $archive `
+          $env:CUDART_URL
+        if ($LASTEXITCODE) { throw "Failed to download CUDA Runtime 12.8.90" }
 
-        $cudaLibrary = Join-Path $extractDirectory "cuda.lib"
+        $actualHash = (Get-FileHash $archive -Algorithm SHA256).Hash
+        if ($actualHash -ne $env:CUDART_SHA256) {
+          throw "CUDA Runtime checksum mismatch: $actualHash"
+        }
+        Expand-Archive -LiteralPath $archive -DestinationPath $extractDirectory
+        $cudaLibrary = Join-Path $extractDirectory `
+          "cuda_cudart-windows-x86_64-12.8.90-archive\lib\x64\cuda.lib"
+
         $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
         $vsInstall = (& $vswhere -latest -property installationPath | Select-Object -First 1)
         $dumpbin = Get-ChildItem (Join-Path $vsInstall "VC\Tools\MSVC") `
@@ -183,13 +154,13 @@ jobs:
         if (!$dumpbin) { throw "Native ARM64 dumpbin.exe was not found" }
 
         $headers = & $dumpbin.FullName /headers $cudaLibrary
-        if ($LASTEXITCODE) { throw "Failed to inspect the ARM64 CUDA loader library" }
-        if (($headers | Out-String) -notmatch "AA64 machine \(ARM64\)") {
-          throw "CUDA loader library is not ARM64"
+        if ($LASTEXITCODE) { throw "Failed to inspect the CUDA loader library" }
+        if (($headers | Out-String) -notmatch "8664 machine \(x64\)") {
+          throw "CUDA loader library is not x64"
         }
 
         $members = & $dumpbin.FullName /linkermember:2 $cudaLibrary
-        if ($LASTEXITCODE) { throw "Failed to read ARM64 CUDA loader symbols" }
+        if ($LASTEXITCODE) { throw "Failed to read CUDA loader symbols" }
         $symbols = @(
           $members | ForEach-Object {
             if ($_ -cmatch "^\s+[0-9A-F]+\s+(cu[A-Z][A-Za-z0-9_]+)$") {
@@ -197,8 +168,8 @@ jobs:
             }
           } | Sort-Object -Unique
         )
-        if ($symbols.Count -lt 700) {
-          throw "Only $($symbols.Count) CUDA Driver API symbols were found"
+        if ($symbols.Count -ne 688) {
+          throw "Expected 688 CUDA Driver API symbols, found $($symbols.Count)"
         }
 
         $definition = @("LIBRARY nvcuda.dll", "", "EXPORTS") + $symbols
@@ -222,10 +193,8 @@ jobs:
           $path = Join-Path "win32\lib" $file
           if (!(Test-Path $path)) { throw "Missing import definition: $path" }
         }
-        foreach ($unsupported in @("python39.def", "python310.def")) {
-          if (Test-Path (Join-Path "win32\lib" $unsupported)) {
-            throw "Unexpected non-ARM64 definition: $unsupported"
-          }
+        if ((Get-Content win32\lib\cuda.def -TotalCount 1) -ne "LIBRARY nvcuda.dll") {
+          throw "cuda.def has the wrong library name"
         }
 
     - name: bundle and smoke test ARM64

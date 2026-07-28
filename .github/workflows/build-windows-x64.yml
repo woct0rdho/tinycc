@@ -16,8 +16,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NVIDIA_DRIVER_URL: https://us.download.nvidia.com/Windows/572.70/572.70-desktop-win10-win11-64bit-international-dch-whql.exe
-  NVIDIA_DRIVER_SHA256: FD81090A6DFE9DFE44E6862F0E29688319E25D62F4D9220A71C2335FD7B708DA
+  CUDART_URL: https://developer.download.nvidia.com/compute/cuda/redist/cuda_cudart/windows-x86_64/cuda_cudart-windows-x86_64-12.8.90-archive.zip
+  CUDART_SHA256: 4A39058FD8519444A81CFC7AE055D136F48D1A31FFA41AE255B35B2EDD61E13B
 
 jobs:
   build-x64:
@@ -30,7 +30,9 @@ jobs:
       shell: cmd
       run: |
         cd win32
-        for /f "delims=" %%i in ('vswhere.exe -latest -property installationPath') do call "%%i\VC\Auxiliary\Build\vcvarsall.bat" amd64
+        for /f "delims=" %%i in ('vswhere.exe -latest -property installationPath') do call "%%i\Common7\Tools\VsDevCmd.bat" -host_arch=amd64 -arch=amd64
+        if /I not "%VSCMD_ARG_HOST_ARCH%"=="x64" exit /B 1
+        if /I not "%VSCMD_ARG_TGT_ARCH%"=="x64" exit /B 1
         call build-tcc.bat -c cl -t x86_64
 
     # These versions match the DLLs used by v0.9.28rc-05bb793.
@@ -129,23 +131,58 @@ jobs:
     - name: generate x64 CUDA definition
       shell: pwsh
       run: |
-        $driver = Join-Path $env:RUNNER_TEMP "nvidia-driver.exe"
-        curl.exe --fail --location --retry 3 --silent --show-error --output $driver $env:NVIDIA_DRIVER_URL
-        if ($LASTEXITCODE) { throw "Failed to download the NVIDIA driver" }
+        $archive = Join-Path $env:RUNNER_TEMP "cuda_cudart-windows-x86_64-12.8.90-archive.zip"
+        $extractDirectory = Join-Path $env:RUNNER_TEMP "cuda-cudart-x64"
+        curl.exe `
+          --fail `
+          --location `
+          --retry 5 `
+          --retry-all-errors `
+          --retry-delay 5 `
+          --silent `
+          --show-error `
+          --output $archive `
+          $env:CUDART_URL
+        if ($LASTEXITCODE) { throw "Failed to download CUDA Runtime 12.8.90" }
 
-        $actualHash = (Get-FileHash $driver -Algorithm SHA256).Hash
-        if ($actualHash -ne $env:NVIDIA_DRIVER_SHA256) {
-          throw "NVIDIA driver checksum mismatch: $actualHash"
+        $actualHash = (Get-FileHash $archive -Algorithm SHA256).Hash
+        if ($actualHash -ne $env:CUDART_SHA256) {
+          throw "CUDA Runtime checksum mismatch: $actualHash"
+        }
+        Expand-Archive -LiteralPath $archive -DestinationPath $extractDirectory
+        $cudaLibrary = Join-Path $extractDirectory `
+          "cuda_cudart-windows-x86_64-12.8.90-archive\lib\x64\cuda.lib"
+
+        $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+        $vsInstall = (& $vswhere -latest -property installationPath | Select-Object -First 1)
+        $dumpbin = Get-ChildItem (Join-Path $vsInstall "VC\Tools\MSVC") `
+          -Recurse -Filter dumpbin.exe |
+          Where-Object FullName -Match "bin\\Hostx64\\x64\\dumpbin.exe$" |
+          Sort-Object FullName -Descending |
+          Select-Object -First 1
+        if (!$dumpbin) { throw "Native x64 dumpbin.exe was not found" }
+
+        $headers = & $dumpbin.FullName /headers $cudaLibrary
+        if ($LASTEXITCODE) { throw "Failed to inspect the CUDA loader library" }
+        if (($headers | Out-String) -notmatch "8664 machine \(x64\)") {
+          throw "CUDA loader library is not x64"
         }
 
-        $driverFiles = Join-Path $env:RUNNER_TEMP "nvidia-driver"
-        & "C:\Program Files\7-Zip\7z.exe" e -y $driver "Display.Driver\nvcuda_loader64.dll" "-o$driverFiles"
-        if ($LASTEXITCODE) { throw "Failed to extract nvcuda_loader64.dll" }
+        $members = & $dumpbin.FullName /linkermember:2 $cudaLibrary
+        if ($LASTEXITCODE) { throw "Failed to read CUDA loader symbols" }
+        $symbols = @(
+          $members | ForEach-Object {
+            if ($_ -cmatch "^\s+[0-9A-F]+\s+(cu[A-Z][A-Za-z0-9_]+)$") {
+              $Matches[1]
+            }
+          } | Sort-Object -Unique
+        )
+        if ($symbols.Count -ne 688) {
+          throw "Expected 688 CUDA Driver API symbols, found $($symbols.Count)"
+        }
 
-        $cudaDll = Join-Path $driverFiles "nvcuda.dll"
-        Move-Item (Join-Path $driverFiles "nvcuda_loader64.dll") $cudaDll
-        & .\win32\tcc.exe -impdef $cudaDll -o win32\lib\cuda.def
-        if ($LASTEXITCODE) { throw "Failed to generate cuda.def" }
+        $definition = @("LIBRARY nvcuda.dll", "", "EXPORTS") + $symbols
+        Set-Content win32\lib\cuda.def $definition -Encoding ascii
 
     - name: verify x64 import definitions
       shell: pwsh
